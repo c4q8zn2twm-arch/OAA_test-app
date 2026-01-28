@@ -184,7 +184,8 @@ else:
                 "Entry": entry,
                 "Stop": stop,
                 "Target": target,
-                "RR": rr(entry, stop, target)
+                "RR": rr(entry, stop, target),
+                "DateTime": candle["time"]
             })
 
         # Rotational Acceptance
@@ -197,30 +198,48 @@ else:
                 "Entry": entry,
                 "Stop": stop,
                 "Target": target,
-                "RR": rr(entry, stop, target)
+                "RR": rr(entry, stop, target),
+                "DateTime": candle["time"]
             })
 
 signals_df = pd.DataFrame(signals)
 
-st.subheader("Trade Suggestions (Automated)")
+# -------------------------------
+# Automated Trade Journal with delete option
+# -------------------------------
+st.subheader("Trade Suggestions & Journal (Automated)")
+
 if signals_df.empty:
     st.info("No valid setups detected.")
 else:
-    st.dataframe(signals_df)
+    # Add checkbox column for deletions
+    if "automated_journal" not in st.session_state:
+        # Initialize from signals_df adding "Delete" False column
+        st.session_state.automated_journal = signals_df.assign(Delete=False)
 
-# -------------------------------
-# Automated Trade Journal
-# -------------------------------
-st.subheader("Trade Journal (Automated Signals)")
-journal = st.data_editor(
-    signals_df.assign(Notes=""),
-    use_container_width=True,
-    num_rows="dynamic"
-)
+    # Display editable dataframe with checkbox column for delete
+    journal_df = st.session_state.automated_journal
 
-if st.button("Export Automated Journal"):
-    journal.to_csv("oaa_journal.csv", index=False)
-    st.success("Exported oaa_journal.csv")
+    edited_df = st.data_editor(
+        journal_df,
+        use_container_width=True,
+        column_config={
+            "Delete": st.column_config.CheckboxColumn("Delete")
+        },
+        num_rows="dynamic"
+    )
+
+    # Button to delete selected rows
+    if st.button("Delete Selected Automated Entries"):
+        # Keep only rows where Delete is False or missing
+        st.session_state.automated_journal = edited_df[~edited_df["Delete"].fillna(False)].reset_index(drop=True)
+        st.success("Deleted selected entries.")
+
+    # Export button
+    if st.button("Export Automated Journal"):
+        export_df = st.session_state.automated_journal.drop(columns=["Delete"], errors="ignore")
+        export_df.to_csv("oaa_journal.csv", index=False)
+        st.success("Exported oaa_journal.csv")
 
 # -------------------------------
 # MANUAL TRADING REPLAY
