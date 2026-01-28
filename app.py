@@ -11,24 +11,40 @@ st.set_page_config(layout="wide", page_title="Opening Auction Acceptance")
 # -------------------------------
 @st.cache_data
 def load_data(symbol):
-    df = yf.download(symbol, interval="5m", period="5d")
+    df = yf.download(
+        symbol,
+        interval="5m",
+        period="5d",
+        auto_adjust=False,
+        progress=False
+    )
 
     if df.empty:
-        return df
+        return pd.DataFrame()
 
-    # If datetime is index, reset it
+    # Reset index if time is index
     if isinstance(df.index, pd.DatetimeIndex):
         df = df.reset_index()
+
+    # Flatten MultiIndex columns (THIS IS THE KEY FIX)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [col[0] for col in df.columns]
 
     # Normalize time column
     if "Datetime" in df.columns:
         df.rename(columns={"Datetime": "time"}, inplace=True)
     elif "Date" in df.columns:
         df.rename(columns={"Date": "time"}, inplace=True)
-    else:
-        return pd.DataFrame()  # fail safely
+    elif "time" not in df.columns:
+        return pd.DataFrame()
 
     df["time"] = pd.to_datetime(df["time"])
+
+    # Final safety filter
+    required_cols = {"Open", "High", "Low", "Close"}
+    if not required_cols.issubset(df.columns):
+        return pd.DataFrame()
+
     return df
 
 
