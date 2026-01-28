@@ -12,9 +12,25 @@ st.set_page_config(layout="wide", page_title="Opening Auction Acceptance")
 @st.cache_data
 def load_data(symbol):
     df = yf.download(symbol, interval="5m", period="5d")
-    df = df.reset_index()
-    df.rename(columns={"Datetime": "time"}, inplace=True)
+
+    if df.empty:
+        return df
+
+    # If datetime is index, reset it
+    if isinstance(df.index, pd.DatetimeIndex):
+        df = df.reset_index()
+
+    # Normalize time column
+    if "Datetime" in df.columns:
+        df.rename(columns={"Datetime": "time"}, inplace=True)
+    elif "Date" in df.columns:
+        df.rename(columns={"Date": "time"}, inplace=True)
+    else:
+        return pd.DataFrame()  # fail safely
+
+    df["time"] = pd.to_datetime(df["time"])
     return df
+
 
 # -------------------------------
 # UTILS
