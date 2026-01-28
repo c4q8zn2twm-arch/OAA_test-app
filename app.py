@@ -4,7 +4,7 @@ import numpy as np
 import yfinance as yf
 from datetime import datetime, time, timedelta
 
-st.set_page_config(layout="wide", page_title="Opening Auction Acceptance")
+st.set_page_config(layout="wide", page_title="Opening Auction Acceptance + Manual Replay")
 
 # -------------------------------
 # DEMO DATA LOADER
@@ -103,9 +103,9 @@ def rr(entry, stop, target):
     return round(reward / risk, 2) if risk > 0 else 0
 
 # -------------------------------
-# UI
+# UI - Title & Symbol Input
 # -------------------------------
-st.title("📊 Opening Auction Acceptance (OAA)")
+st.title("📊 Opening Auction Acceptance + Manual Trading Replay")
 
 symbol = st.text_input("Symbol (Stocks / FX / Crypto)", "AAPL")
 df = load_data(symbol)
@@ -114,10 +114,16 @@ if df.empty:
     st.error("No data returned. Check symbol or market hours.")
     st.stop()
 
+# -------------------------------
+# Calculate key levels
+# -------------------------------
 OH, OL = opening_range(df)
 PMH, PML = premarket_levels(df)
 PDH, PDL, PDO = prior_day_levels(df)
 
+# -------------------------------
+# Display key levels or after hours warning
+# -------------------------------
 st.subheader("Key Levels")
 if OH is None or OL is None:
     st.warning("Aftermarket hours - no opening range data available.")
@@ -135,7 +141,7 @@ else:
     })
 
 # -------------------------------
-# DAY TYPE
+# Day Type (Initiative or Rotational)
 # -------------------------------
 latest = df.iloc[-1]
 day_type = "Rotational"
@@ -151,7 +157,7 @@ if manual_day != "Auto":
 st.success(f"Day Type: {day_type}")
 
 # -------------------------------
-# SIGNAL LOGIC
+# Automated Signal Generation
 # -------------------------------
 signals = []
 
@@ -196,22 +202,108 @@ else:
 
 signals_df = pd.DataFrame(signals)
 
-st.subheader("Trade Suggestions")
+st.subheader("Trade Suggestions (Automated)")
 if signals_df.empty:
     st.info("No valid setups detected.")
 else:
     st.dataframe(signals_df)
 
 # -------------------------------
-# JOURNAL
+# Automated Trade Journal
 # -------------------------------
-st.subheader("Trade Journal")
+st.subheader("Trade Journal (Automated Signals)")
 journal = st.data_editor(
     signals_df.assign(Notes=""),
     use_container_width=True,
     num_rows="dynamic"
 )
 
-if st.button("Export Journal"):
+if st.button("Export Automated Journal"):
     journal.to_csv("oaa_journal.csv", index=False)
     st.success("Exported oaa_journal.csv")
+
+# -------------------------------
+# MANUAL TRADING REPLAY
+# -------------------------------
+st.divider()
+st.subheader("🔄 Manual Trading Replay")
+
+# Initialize session state for replay
+if 'df_replay' not in st.session_state:
+    st.session_state.df_replay = df.copy()
+if 'index' not in st.session_state:
+    st.session_state.index = 0
+if 'position' not in st.session_state:
+    st.session_state.position = None
+if 'trades' not in st.session_state:
+    st.session_state.trades = []
+
+df_replay = st.session_state.df_replay
+idx = st.session_state.index
+row = df_replay.iloc[idx]
+
+st.write({
+    "Date": row["time"],
+    "Open": round(row.Open, 2),
+    "High": round(row.High, 2),
+    "Low": round(row.Low, 2),
+    "Close": round(row.Close, 2),
+})
+
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    if st.button("⏭ Next Candle"):
+        if st.session_state.index < len(df_replay) - 1:
+            st.session_state.index += 1
+
+with col2:
+    if st.button("🟢 Buy"):
+        if st.session_state.position is None:
+            st.session_state.position = {
+                "entry_date": row["time"],
+                "entry_price": row.Close,
+                "note": ""
+            }
+
+with col3:
+    if st.button("🔴 Sell / Close"):
+        if st.session_state.position is not None:
+            trade = st.session_state.position
+            trade["exit_date"] = row["time"]
+            trade["exit_price"] = row.Close
+            trade["pnl"] = round(row.Close - trade["entry_price"], 2)
+            st.session_state.trades.append(trade)
+            st.session_state.position = None
+
+with col4:
+    if st.button("⏮ Reset Session"):
+        st.session_state.index = 0
+        st.session_state.position = None
+        st.session_state.trades = []
+
+if st.session_state.position is not None:
+    st.session_state.position["note"] = st.text_input(
+        "📝 Trade Note",
+        st.session_state.position.get("note", "")
+    )
+
+# -------------------------------
+# MANUAL TRADE JOURNAL
+# -------------------------------
+st.divider()
+st.subheader("📒 Manual Trade Journal")
+
+if st.session_state.trades:
+    trades_df = pd.DataFrame(st.session_state.trades)
+    st.dataframe(trades_df, use_container_width=True)
+
+    csv = trades_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "⬇ Download Manual Trades CSV",
+        csv,
+        "manual_trade_journal.csv",
+        "text/csv"
+    )
+else:
+    st.info("No manual trades recorded yet.")
