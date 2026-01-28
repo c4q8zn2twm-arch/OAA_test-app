@@ -119,12 +119,20 @@ PMH, PML = premarket_levels(df)
 PDH, PDL, PDO = prior_day_levels(df)
 
 st.subheader("Key Levels")
-st.write({
-    "OH": OH, "OL": OL,
-    "PMH": PMH, "PML": PML,
-    "PDH": PDH, "PDL": PDL,
-    "PDO": PDO
-})
+if OH is None or OL is None:
+    st.warning("Aftermarket hours - no opening range data available.")
+    st.write({
+        "PMH": PMH, "PML": PML,
+        "PDH": PDH, "PDL": PDL,
+        "PDO": PDO
+    })
+else:
+    st.write({
+        "OH": OH, "OL": OL,
+        "PMH": PMH, "PML": PML,
+        "PDH": PDH, "PDL": PDL,
+        "PDO": PDO
+    })
 
 # -------------------------------
 # DAY TYPE
@@ -147,35 +155,44 @@ st.success(f"Day Type: {day_type}")
 # -------------------------------
 signals = []
 
-for i in range(5, len(df)):
-    candle = df.iloc[i]
-    prev = df.iloc[i-1]
+if OH is None or OL is None:
+    st.info("No opening range data available, so no trade signals generated.")
+else:
+    for i in range(5, len(df)):
+        candle = df.iloc[i]
+        prev = df.iloc[i-1]
 
-    # Initiative Break
-    if candle["Close"] > OH and candle["Close"] > prev["High"]:
-        entry = candle["Close"]
-        stop = OL
-        target = PDH
-        signals.append({
-            "Type": "OAA-I",
-            "Entry": entry,
-            "Stop": stop,
-            "Target": target,
-            "RR": rr(entry, stop, target)
-        })
+        # Skip if key values missing or NaN
+        if any(val is None for val in [OH, OL, PDH, PDO]):
+            continue
+        if pd.isna(candle["Close"]) or pd.isna(prev["High"]):
+            continue
 
-    # Rotational Acceptance
-    if candle["High"] > OH and candle["Close"] < OH:
-        entry = candle["Close"]
-        stop = candle["High"]
-        target = PDO
-        signals.append({
-            "Type": "OAA-R",
-            "Entry": entry,
-            "Stop": stop,
-            "Target": target,
-            "RR": rr(entry, stop, target)
-        })
+        # Initiative Break
+        if candle["Close"] > OH and candle["Close"] > prev["High"]:
+            entry = candle["Close"]
+            stop = OL
+            target = PDH
+            signals.append({
+                "Type": "OAA-I",
+                "Entry": entry,
+                "Stop": stop,
+                "Target": target,
+                "RR": rr(entry, stop, target)
+            })
+
+        # Rotational Acceptance
+        if candle["High"] > OH and candle["Close"] < OH:
+            entry = candle["Close"]
+            stop = candle["High"]
+            target = PDO
+            signals.append({
+                "Type": "OAA-R",
+                "Entry": entry,
+                "Stop": stop,
+                "Target": target,
+                "RR": rr(entry, stop, target)
+            })
 
 signals_df = pd.DataFrame(signals)
 
