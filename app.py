@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 
 st.set_page_config(layout="wide", page_title="Opening Auction Acceptance")
 
@@ -66,9 +66,35 @@ def premarket_levels(df):
 def prior_day_levels(df):
     df["date"] = df["time"].dt.date
     dates = sorted(df["date"].unique())
+
     if len(dates) < 2:
         return None, None, None
-    prior = df[df["date"] == dates[-2]]
+
+    last_date = dates[-1]
+    last_datetime = pd.to_datetime(last_date)
+    weekday = last_datetime.weekday()  # Monday=0, ..., Sunday=6
+
+    # Determine prior trading day for weekends and Mondays
+    if weekday == 0:  # Monday
+        prior_date = last_datetime - timedelta(days=3)  # Friday
+    elif weekday == 5:  # Saturday
+        prior_date = last_datetime - timedelta(days=1)  # Friday
+    elif weekday == 6:  # Sunday
+        prior_date = last_datetime - timedelta(days=2)  # Friday
+    else:
+        prior_date = last_datetime - timedelta(days=1)  # Normal prior day
+
+    # Adjust if prior_date not in available dates (holidays, etc)
+    available_prior_dates = [d for d in dates if d < prior_date.date()]
+    if available_prior_dates:
+        prior_date = max(available_prior_dates)
+    else:
+        prior_date = dates[-2]  # fallback
+
+    prior = df[df["date"] == prior_date]
+    if prior.empty:
+        return None, None, None
+
     return prior["High"].max(), prior["Low"].min(), prior["Open"].iloc[0]
 
 def rr(entry, stop, target):
@@ -84,7 +110,9 @@ st.title("📊 Opening Auction Acceptance (OAA)")
 symbol = st.text_input("Symbol (Stocks / FX / Crypto)", "AAPL")
 df = load_data(symbol)
 
-df["time"] = pd.to_datetime(df["time"])
+if df.empty:
+    st.error("No data returned. Check symbol or market hours.")
+    st.stop()
 
 OH, OL = opening_range(df)
 PMH, PML = premarket_levels(df)
