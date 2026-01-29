@@ -212,12 +212,10 @@ st.subheader("Trade Suggestions & Journal (Automated)")
 if signals_df.empty:
     st.info("No valid setups detected.")
 else:
-    # Add checkbox column for deletions
+    # Initialize journal in session state if missing
     if "automated_journal" not in st.session_state:
-        # Initialize from signals_df adding "Delete" False column
         st.session_state.automated_journal = signals_df.assign(Delete=False)
 
-    # Display editable dataframe with checkbox column for delete
     journal_df = st.session_state.automated_journal
 
     edited_df = st.data_editor(
@@ -229,21 +227,22 @@ else:
         num_rows="dynamic"
     )
 
-    # Button to delete selected rows
     if st.button("Delete Selected Automated Entries"):
-        # Keep only rows where Delete is False or missing
-        st.session_state.automated_journal = edited_df[~edited_df["Delete"].fillna(False)].reset_index(drop=True)
-        st.success("Deleted selected entries.")
+        st.session_state.show_auto_confirm = True
 
-    # Export button
+    # Confirmation checkbox for automated deletion
+    if st.session_state.get("show_auto_confirm", False):
+        confirm = st.checkbox("Confirm deletion of selected automated entries")
+        if confirm:
+            st.session_state.automated_journal = edited_df[~edited_df["Delete"].fillna(False)].reset_index(drop=True)
+            st.success("Deleted selected automated entries.")
+            st.session_state.show_auto_confirm = False
+
     if st.button("Export Automated Journal"):
         export_df = st.session_state.automated_journal.drop(columns=["Delete"], errors="ignore")
         export_df.to_csv("oaa_journal.csv", index=False)
         st.success("Exported oaa_journal.csv")
 
-# -------------------------------
-# MANUAL TRADING REPLAY
-# -------------------------------
 # -------------------------------
 # MANUAL TRADING REPLAY
 # -------------------------------
@@ -264,13 +263,8 @@ df_replay = st.session_state.df_replay
 idx = st.session_state.index
 row = df_replay.iloc[idx]
 
-st.write({
-    "Date": row["time"],
-    "Open": round(row.Open, 2),
-    "High": round(row.High, 2),
-    "Low": round(row.Low, 2),
-    "Close": round(row.Close, 2),
-})
+# Show current time and close price prominently
+st.markdown(f"**Current Candle:** {row['time']}  |  **Close Price:** {round(row.Close, 2)}")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -315,19 +309,38 @@ if st.session_state.position is not None:
         st.session_state.position.get("note", "")
     )
 
-
-
 # -------------------------------
-# MANUAL TRADE JOURNAL
+# MANUAL TRADE JOURNAL with deletion and confirmation
 # -------------------------------
 st.divider()
 st.subheader("📒 Manual Trade Journal")
 
 if st.session_state.trades:
-    trades_df = pd.DataFrame(st.session_state.trades)
-    st.dataframe(trades_df, use_container_width=True)
+    manual_trades_df = pd.DataFrame(st.session_state.trades)
+    if "Delete" not in manual_trades_df.columns:
+        manual_trades_df["Delete"] = False
 
-    csv = trades_df.to_csv(index=False).encode("utf-8")
+    edited_manual_df = st.data_editor(
+        manual_trades_df,
+        use_container_width=True,
+        column_config={
+            "Delete": st.column_config.CheckboxColumn("Delete")
+        },
+        num_rows="dynamic"
+    )
+
+    if st.button("Delete Selected Manual Entries"):
+        st.session_state.show_manual_confirm = True
+
+    # Confirmation checkbox for manual deletion
+    if st.session_state.get("show_manual_confirm", False):
+        confirm_manual = st.checkbox("Confirm deletion of selected manual entries")
+        if confirm_manual:
+            st.session_state.trades = edited_manual_df[~edited_manual_df["Delete"].fillna(False)].drop(columns=["Delete"]).to_dict('records')
+            st.success("Deleted selected manual entries.")
+            st.session_state.show_manual_confirm = False
+
+    csv = pd.DataFrame(st.session_state.trades).to_csv(index=False).encode("utf-8")
     st.download_button(
         "⬇ Download Manual Trades CSV",
         csv,
