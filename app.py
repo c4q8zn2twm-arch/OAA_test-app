@@ -103,11 +103,19 @@ def rr(entry, stop, target):
     return round(reward / risk, 2) if risk > 0 else 0
 
 # -------------------------------
-# UI - Title & Symbol Input
+# UI - Title & Symbol Input + Current Time Display
 # -------------------------------
-st.title("📊 Opening Auction Acceptance + Manual Trading Replay")
+colA, colB = st.columns([3,1])
+with colA:
+    st.title("📊 Opening Auction Acceptance + Manual Trading Replay")
+    symbol = st.text_input("Symbol (Stocks / FX / Crypto)", "AAPL")
+    st.caption("Hint: Enter ticker symbols like AAPL, EURUSD=X (FX), BTC-USD (Crypto), ES=F (Futures)")
 
-symbol = st.text_input("Symbol (Stocks / FX / Crypto)", "AAPL")
+with colB:
+    # Show current date and time top right, update on rerun
+    now = datetime.now()
+    st.markdown(f"**Current Time:** {now.strftime('%Y-%m-%d %H:%M:%S')}")
+
 df = load_data(symbol)
 
 if df.empty:
@@ -212,7 +220,6 @@ st.subheader("Trade Suggestions & Journal (Automated)")
 if signals_df.empty:
     st.info("No valid setups detected.")
 else:
-    # Initialize journal in session state if missing
     if "automated_journal" not in st.session_state:
         st.session_state.automated_journal = signals_df.assign(Delete=False)
 
@@ -230,7 +237,6 @@ else:
     if st.button("Delete Selected Automated Entries"):
         st.session_state.show_auto_confirm = True
 
-    # Confirmation checkbox for automated deletion
     if st.session_state.get("show_auto_confirm", False):
         confirm = st.checkbox("Confirm deletion of selected automated entries")
         if confirm:
@@ -244,7 +250,7 @@ else:
         st.success("Exported oaa_journal.csv")
 
 # -------------------------------
-# MANUAL TRADING REPLAY
+# MANUAL TRADING REPLAY (reverted to previous style)
 # -------------------------------
 st.divider()
 st.subheader("🔄 Manual Trading Replay")
@@ -263,22 +269,22 @@ df_replay = st.session_state.df_replay
 idx = st.session_state.index
 row = df_replay.iloc[idx]
 
-# Show current time and close price prominently
-st.markdown(f"**Current Candle:** {row['time']}  |  **Close Price:** {round(row.Close, 2)}")
+st.write({
+    "Date": row["time"],
+    "Open": round(row.Open, 2),
+    "High": round(row.High, 2),
+    "Low": round(row.Low, 2),
+    "Close": round(row.Close, 2),
+})
 
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    if st.button("⏮ Previous Candle"):
-        if st.session_state.index > 0:
-            st.session_state.index -= 1
-
-with col2:
     if st.button("⏭ Next Candle"):
         if st.session_state.index < len(df_replay) - 1:
             st.session_state.index += 1
 
-with col3:
+with col2:
     if st.button("🟢 Buy"):
         if st.session_state.position is None:
             st.session_state.position = {
@@ -287,7 +293,7 @@ with col3:
                 "note": ""
             }
 
-with col4:
+with col3:
     if st.button("🔴 Sell / Close"):
         if st.session_state.position is not None:
             trade = st.session_state.position
@@ -297,7 +303,7 @@ with col4:
             st.session_state.trades.append(trade)
             st.session_state.position = None
 
-with col5:
+with col4:
     if st.button("🔄 Reset Session"):
         st.session_state.index = 0
         st.session_state.position = None
@@ -332,7 +338,6 @@ if st.session_state.trades:
     if st.button("Delete Selected Manual Entries"):
         st.session_state.show_manual_confirm = True
 
-    # Confirmation checkbox for manual deletion
     if st.session_state.get("show_manual_confirm", False):
         confirm_manual = st.checkbox("Confirm deletion of selected manual entries")
         if confirm_manual:
