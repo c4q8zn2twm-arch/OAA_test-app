@@ -250,7 +250,7 @@ else:
         st.success("Exported oaa_journal.csv")
 
 # -------------------------------
-# MANUAL TRADING REPLAY (reverted to previous style)
+# MANUAL TRADING REPLAY with previous & next buttons
 # -------------------------------
 st.divider()
 st.subheader("🔄 Manual Trading Replay")
@@ -277,14 +277,19 @@ st.write({
     "Close": round(row.Close, 2),
 })
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
+    if st.button("⏮ Previous Candle"):
+        if st.session_state.index > 0:
+            st.session_state.index -= 1
+
+with col2:
     if st.button("⏭ Next Candle"):
         if st.session_state.index < len(df_replay) - 1:
             st.session_state.index += 1
 
-with col2:
+with col3:
     if st.button("🟢 Buy"):
         if st.session_state.position is None:
             st.session_state.position = {
@@ -293,7 +298,7 @@ with col2:
                 "note": ""
             }
 
-with col3:
+with col4:
     if st.button("🔴 Sell / Close"):
         if st.session_state.position is not None:
             trade = st.session_state.position
@@ -303,7 +308,7 @@ with col3:
             st.session_state.trades.append(trade)
             st.session_state.position = None
 
-with col4:
+with col5:
     if st.button("🔄 Reset Session"):
         st.session_state.index = 0
         st.session_state.position = None
