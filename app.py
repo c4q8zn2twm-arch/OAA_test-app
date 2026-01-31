@@ -242,3 +242,128 @@ with st.expander("🤖 Trade Suggestions & Automated Journal", expanded=True):
 
         with col2:
             if st.button("⬇ Export Automated Journal CSV"):
+                export_df = st.session_state.automated_journal.drop(columns=["Delete"], errors="ignore")
+                export_df.to_csv("oaa_journal.csv", index=False)
+                st.success("Exported oaa_journal.csv")
+
+        if st.session_state.get("show_auto_confirm", False):
+            confirm = st.checkbox("Confirm deletion of selected automated entries")
+            if confirm:
+                st.session_state.automated_journal = edited_df[~edited_df["Delete"].fillna(False)].reset_index(drop=True)
+                st.success("Deleted selected automated entries.")
+                st.session_state.show_auto_confirm = False
+
+# -------------------------------
+# Manual Trading Replay
+# -------------------------------
+with st.expander("🎮 Manual Trading Replay", expanded=True):
+
+    if 'df_replay' not in st.session_state:
+        st.session_state.df_replay = df.copy()
+    if 'index' not in st.session_state:
+        st.session_state.index = 0
+    if 'position' not in st.session_state:
+        st.session_state.position = None
+    if 'trades' not in st.session_state:
+        st.session_state.trades = []
+
+    df_replay = st.session_state.df_replay
+    idx = st.session_state.index
+    row = df_replay.iloc[idx]
+
+    st.markdown(f"### Candle {idx + 1} / {len(df_replay)}")
+    st.write({
+        "Date": row["time"],
+        "Open": round(row.Open, 2),
+        "High": round(row.High, 2),
+        "Low": round(row.Low, 2),
+        "Close": round(row.Close, 2),
+    })
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    with col1:
+        if st.button("⏮ Previous Candle"):
+            if st.session_state.index > 0:
+                st.session_state.index -= 1
+
+    with col2:
+        if st.button("⏭ Next Candle"):
+            if st.session_state.index < len(df_replay) - 1:
+                st.session_state.index += 1
+
+    with col3:
+        if st.button("🟢 Buy"):
+            if st.session_state.position is None:
+                st.session_state.position = {
+                    "entry_date": row["time"],
+                    "entry_price": row.Close,
+                    "note": ""
+                }
+
+    with col4:
+        if st.button("🔴 Sell / Close"):
+            if st.session_state.position is not None:
+                trade = st.session_state.position
+                trade["exit_date"] = row["time"]
+                trade["exit_price"] = row.Close
+                trade["pnl"] = round(row.Close - trade["entry_price"], 2)
+                st.session_state.trades.append(trade)
+                st.session_state.position = None
+
+    with col5:
+        if st.button("🔄 Reset Session"):
+            st.session_state.index = 0
+            st.session_state.position = None
+            st.session_state.trades = []
+
+    if st.session_state.position is not None:
+        st.text_area(
+            "📝 Trade Note",
+            st.session_state.position.get("note", ""),
+            key="trade_note_textarea",
+            on_change=lambda: st.session_state.position.update({"note": st.session_state.trade_note_textarea})
+        )
+
+# -------------------------------
+# Manual Trade Journal
+# -------------------------------
+with st.expander("📒 Manual Trade Journal", expanded=True):
+
+    if st.session_state.trades:
+        manual_trades_df = pd.DataFrame(st.session_state.trades)
+        if "Delete" not in manual_trades_df.columns:
+            manual_trades_df["Delete"] = False
+
+        edited_manual_df = st.data_editor(
+            manual_trades_df,
+            use_container_width=True,
+            column_config={
+                "Delete": st.column_config.CheckboxColumn("Delete")
+            },
+            num_rows="dynamic"
+        )
+
+        col1, col2, col3 = st.columns([1,1,1])
+
+        with col1:
+            if st.button("🗑️ Delete Selected Manual Entries"):
+                st.session_state.show_manual_confirm = True
+
+        with col2:
+            csv = pd.DataFrame(st.session_state.trades).to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "⬇ Export Manual Trades CSV",
+                csv,
+                "manual_trade_journal.csv",
+                "text/csv"
+            )
+
+        if st.session_state.get("show_manual_confirm", False):
+            confirm_manual = st.checkbox("Confirm deletion of selected manual entries")
+            if confirm_manual:
+                st.session_state.trades = edited_manual_df[~edited_manual_df["Delete"].fillna(False)].drop(columns=["Delete"]).to_dict('records')
+                st.success("Deleted selected manual entries.")
+                st.session_state.show_manual_confirm = False
+    else:
+        st.info("No manual trades recorded yet.")
