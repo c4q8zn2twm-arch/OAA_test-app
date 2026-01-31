@@ -103,18 +103,18 @@ def rr(entry, stop, target):
     return round(reward / risk, 2) if risk > 0 else 0
 
 # -------------------------------
-# UI - Title & Symbol Input + Current Time Display
+# PAGE HEADER
 # -------------------------------
-colA, colB = st.columns([3,1])
-with colA:
+col_left, col_right = st.columns([3,1])
+
+with col_left:
     st.title("📊 Opening Auction Acceptance + Manual Trading Replay")
     symbol = st.text_input("Symbol (Stocks / FX / Crypto)", "AAPL")
-    st.caption("Hint: Enter ticker symbols like AAPL, EURUSD=X (FX), BTC-USD (Crypto), ES=F (Futures)")
+    st.caption("Hint: Try tickers like AAPL, EURUSD=X (FX), BTC-USD (Crypto), ES=F (Futures)")
 
-with colB:
-    # Show current date and time top right, update on rerun
+with col_right:
     now = datetime.now()
-    st.markdown(f"**Current Time:** {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    st.markdown(f"### ⏰ Current Time\n**{now.strftime('%Y-%m-%d %H:%M:%S')}**")
 
 df = load_data(symbol)
 
@@ -123,241 +123,122 @@ if df.empty:
     st.stop()
 
 # -------------------------------
-# Calculate key levels
+# Calculate Key Levels
 # -------------------------------
 OH, OL = opening_range(df)
 PMH, PML = premarket_levels(df)
 PDH, PDL, PDO = prior_day_levels(df)
 
 # -------------------------------
-# Display key levels or after hours warning
+# Key Levels Section
 # -------------------------------
-st.subheader("Key Levels")
-if OH is None or OL is None:
-    st.warning("Aftermarket hours - no opening range data available.")
-    st.write({
-        "PMH": PMH, "PML": PML,
-        "PDH": PDH, "PDL": PDL,
-        "PDO": PDO
-    })
-else:
-    st.write({
-        "OH": OH, "OL": OL,
-        "PMH": PMH, "PML": PML,
-        "PDH": PDH, "PDL": PDL,
-        "PDO": PDO
-    })
-
-# -------------------------------
-# Day Type (Initiative or Rotational)
-# -------------------------------
-latest = df.iloc[-1]
-day_type = "Rotational"
-
-if OH is not None and OL is not None:
-    if latest["Close"] > OH or latest["Close"] < OL:
-        day_type = "Initiative"
-
-manual_day = st.selectbox("Day Type Override", ["Auto", "Initiative", "Rotational"])
-if manual_day != "Auto":
-    day_type = manual_day
-
-st.success(f"Day Type: {day_type}")
+with st.expander("🔑 Key Levels", expanded=True):
+    if OH is None or OL is None:
+        st.warning("Aftermarket hours — no opening range data available.")
+        st.write({
+            "PMH": PMH, "PML": PML,
+            "PDH": PDH, "PDL": PDL,
+            "PDO": PDO
+        })
+    else:
+        st.write({
+            "OH": OH, "OL": OL,
+            "PMH": PMH, "PML": PML,
+            "PDH": PDH, "PDL": PDL,
+            "PDO": PDO
+        })
 
 # -------------------------------
-# Automated Signal Generation (with Side field)
+# Day Type Section
 # -------------------------------
-signals = []
+with st.expander("📅 Day Type", expanded=True):
+    latest = df.iloc[-1]
+    day_type = "Rotational"
 
-if OH is None or OL is None:
-    st.info("No opening range data available, so no trade signals generated.")
-else:
-    for i in range(5, len(df)):
-        candle = df.iloc[i]
-        prev = df.iloc[i-1]
+    if OH is not None and OL is not None:
+        if latest["Close"] > OH or latest["Close"] < OL:
+            day_type = "Initiative"
 
-        # Skip if key values missing or NaN
-        if any(val is None for val in [OH, OL, PDH, PDO]):
-            continue
-        if pd.isna(candle["Close"]) or pd.isna(prev["High"]):
-            continue
+    manual_day = st.selectbox("Day Type Override", ["Auto", "Initiative", "Rotational"])
+    if manual_day != "Auto":
+        day_type = manual_day
 
-        # Initiative Break (Long)
-        if candle["Close"] > OH and candle["Close"] > prev["High"]:
-            entry = candle["Close"]
-            stop = OL
-            target = PDH
-            signals.append({
-                "Type": "OAA-I",
-                "Side": "Long",
-                "Entry": entry,
-                "Stop": stop,
-                "Target": target,
-                "RR": rr(entry, stop, target),
-                "DateTime": candle["time"]
-            })
-
-        # Rotational Acceptance (Short)
-        if candle["High"] > OH and candle["Close"] < OH:
-            entry = candle["Close"]
-            stop = candle["High"]
-            target = PDO
-            signals.append({
-                "Type": "OAA-R",
-                "Side": "Short",
-                "Entry": entry,
-                "Stop": stop,
-                "Target": target,
-                "RR": rr(entry, stop, target),
-                "DateTime": candle["time"]
-            })
-
-signals_df = pd.DataFrame(signals)
+    st.markdown(f"<h3 style='color: {'green' if day_type=='Initiative' else 'orange'};'>Day Type: {day_type}</h3>", unsafe_allow_html=True)
 
 # -------------------------------
-# Automated Trade Journal with delete option
+# Automated Trade Suggestions & Journal
 # -------------------------------
-st.subheader("Trade Suggestions & Journal (Automated)")
+with st.expander("🤖 Trade Suggestions & Automated Journal", expanded=True):
 
-if signals_df.empty:
-    st.info("No valid setups detected.")
-else:
-    if "automated_journal" not in st.session_state:
-        st.session_state.automated_journal = signals_df.assign(Delete=False)
+    signals = []
 
-    journal_df = st.session_state.automated_journal
+    if OH is None or OL is None:
+        st.info("No opening range data available, so no trade signals generated.")
+    else:
+        for i in range(5, len(df)):
+            candle = df.iloc[i]
+            prev = df.iloc[i-1]
 
-    edited_df = st.data_editor(
-        journal_df,
-        use_container_width=True,
-        column_config={
-            "Delete": st.column_config.CheckboxColumn("Delete")
-        },
-        num_rows="dynamic"
-    )
+            # Skip if key values missing or NaN
+            if any(val is None for val in [OH, OL, PDH, PDO]):
+                continue
+            if pd.isna(candle["Close"]) or pd.isna(prev["High"]):
+                continue
 
-    if st.button("Delete Selected Automated Entries"):
-        st.session_state.show_auto_confirm = True
+            # Initiative Break (Long)
+            if candle["Close"] > OH and candle["Close"] > prev["High"]:
+                entry = candle["Close"]
+                stop = OL
+                target = PDH
+                signals.append({
+                    "Type": "OAA-I",
+                    "Side": "Long",
+                    "Entry": entry,
+                    "Stop": stop,
+                    "Target": target,
+                    "RR": rr(entry, stop, target),
+                    "DateTime": candle["time"]
+                })
 
-    if st.session_state.get("show_auto_confirm", False):
-        confirm = st.checkbox("Confirm deletion of selected automated entries")
-        if confirm:
-            st.session_state.automated_journal = edited_df[~edited_df["Delete"].fillna(False)].reset_index(drop=True)
-            st.success("Deleted selected automated entries.")
-            st.session_state.show_auto_confirm = False
+            # Rotational Acceptance (Short)
+            if candle["High"] > OH and candle["Close"] < OH:
+                entry = candle["Close"]
+                stop = candle["High"]
+                target = PDO
+                signals.append({
+                    "Type": "OAA-R",
+                    "Side": "Short",
+                    "Entry": entry,
+                    "Stop": stop,
+                    "Target": target,
+                    "RR": rr(entry, stop, target),
+                    "DateTime": candle["time"]
+                })
 
-    if st.button("Export Automated Journal"):
-        export_df = st.session_state.automated_journal.drop(columns=["Delete"], errors="ignore")
-        export_df.to_csv("oaa_journal.csv", index=False)
-        st.success("Exported oaa_journal.csv")
+    signals_df = pd.DataFrame(signals)
 
-# -------------------------------
-# MANUAL TRADING REPLAY with previous & next buttons
-# -------------------------------
-st.divider()
-st.subheader("🔄 Manual Trading Replay")
+    if signals_df.empty:
+        st.info("No valid setups detected.")
+    else:
+        if "automated_journal" not in st.session_state:
+            st.session_state.automated_journal = signals_df.assign(Delete=False)
 
-# Initialize session state for replay
-if 'df_replay' not in st.session_state:
-    st.session_state.df_replay = df.copy()
-if 'index' not in st.session_state:
-    st.session_state.index = 0
-if 'position' not in st.session_state:
-    st.session_state.position = None
-if 'trades' not in st.session_state:
-    st.session_state.trades = []
+        journal_df = st.session_state.automated_journal
 
-df_replay = st.session_state.df_replay
-idx = st.session_state.index
-row = df_replay.iloc[idx]
+        edited_df = st.data_editor(
+            journal_df,
+            use_container_width=True,
+            column_config={
+                "Delete": st.column_config.CheckboxColumn("Delete")
+            },
+            num_rows="dynamic"
+        )
 
-st.write({
-    "Date": row["time"],
-    "Open": round(row.Open, 2),
-    "High": round(row.High, 2),
-    "Low": round(row.Low, 2),
-    "Close": round(row.Close, 2),
-})
+        col1, col2, col3 = st.columns([1,1,1])
 
-col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            if st.button("🗑️ Delete Selected Automated Entries"):
+                st.session_state.show_auto_confirm = True
 
-with col1:
-    if st.button("⏮ Previous Candle"):
-        if st.session_state.index > 0:
-            st.session_state.index -= 1
-
-with col2:
-    if st.button("⏭ Next Candle"):
-        if st.session_state.index < len(df_replay) - 1:
-            st.session_state.index += 1
-
-with col3:
-    if st.button("🟢 Buy"):
-        if st.session_state.position is None:
-            st.session_state.position = {
-                "entry_date": row["time"],
-                "entry_price": row.Close,
-                "note": ""
-            }
-
-with col4:
-    if st.button("🔴 Sell / Close"):
-        if st.session_state.position is not None:
-            trade = st.session_state.position
-            trade["exit_date"] = row["time"]
-            trade["exit_price"] = row.Close
-            trade["pnl"] = round(row.Close - trade["entry_price"], 2)
-            st.session_state.trades.append(trade)
-            st.session_state.position = None
-
-with col5:
-    if st.button("🔄 Reset Session"):
-        st.session_state.index = 0
-        st.session_state.position = None
-        st.session_state.trades = []
-
-if st.session_state.position is not None:
-    st.session_state.position["note"] = st.text_input(
-        "📝 Trade Note",
-        st.session_state.position.get("note", "")
-    )
-
-# -------------------------------
-# MANUAL TRADE JOURNAL with deletion and confirmation
-# -------------------------------
-st.divider()
-st.subheader("📒 Manual Trade Journal")
-
-if st.session_state.trades:
-    manual_trades_df = pd.DataFrame(st.session_state.trades)
-    if "Delete" not in manual_trades_df.columns:
-        manual_trades_df["Delete"] = False
-
-    edited_manual_df = st.data_editor(
-        manual_trades_df,
-        use_container_width=True,
-        column_config={
-            "Delete": st.column_config.CheckboxColumn("Delete")
-        },
-        num_rows="dynamic"
-    )
-
-    if st.button("Delete Selected Manual Entries"):
-        st.session_state.show_manual_confirm = True
-
-    if st.session_state.get("show_manual_confirm", False):
-        confirm_manual = st.checkbox("Confirm deletion of selected manual entries")
-        if confirm_manual:
-            st.session_state.trades = edited_manual_df[~edited_manual_df["Delete"].fillna(False)].drop(columns=["Delete"]).to_dict('records')
-            st.success("Deleted selected manual entries.")
-            st.session_state.show_manual_confirm = False
-
-    csv = pd.DataFrame(st.session_state.trades).to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "⬇ Download Manual Trades CSV",
-        csv,
-        "manual_trade_journal.csv",
-        "text/csv"
-    )
-else:
-    st.info("No manual trades recorded yet.")
+        with col2:
+            if st.button("⬇ Export Automated Journal CSV"):
