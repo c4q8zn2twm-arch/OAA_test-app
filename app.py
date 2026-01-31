@@ -192,33 +192,69 @@ signals = []
 
 for i in range(5, len(df)):
     candle = df.iloc[i]
-    prev = df.iloc[i-1]
+    prev = df.iloc[i - 1]
 
-    if OH and PDH:
+    # ---------------------------
+    # Initiative (LONG)
+    # ---------------------------
+    if OH is not None and PDH is not None and OL is not None:
         if candle["Close"] > OH and candle["Close"] > prev["High"]:
-            signals.append({
-                "Type": "OAA-I",
-                "Side": "LONG",
-                "Time": candle["time"],
-                "Entry": candle["Close"],
-                "Stop": OL,
-                "Target": PDH,
-                "RR": rr(candle["Close"], OL, PDH)
-            })
+            entry = candle["Close"]
+            stop = OL
+            target = PDH
+            rr_val = rr(entry, stop, target)
 
-    if OH and PDO:
+            # FILTER: never show RR < 1
+            if rr_val >= 1:
+                signals.append({
+                    "Type": "OAA-I",
+                    "Side": "LONG",
+                    "Time": candle["time"],
+                    "Entry": entry,
+                    "Stop": stop,
+                    "Target": target,
+                    "RR": rr_val,
+                    "Quality": "A+" if rr_val >= 2 else "B"
+                })
+
+    # ---------------------------
+    # Rotational (SHORT)
+    # ---------------------------
+    if OH is not None and PDO is not None:
         if candle["High"] > OH and candle["Close"] < OH:
-            signals.append({
-                "Type": "OAA-R",
-                "Side": "SHORT",
-                "Time": candle["time"],
-                "Entry": candle["Close"],
-                "Stop": candle["High"],
-                "Target": PDO,
-                "RR": rr(candle["Close"], candle["High"], PDO)
-            })
+            entry = candle["Close"]
+            stop = candle["High"]
+            target = PDO
+            rr_val = rr(entry, stop, target)
+
+            # FILTER: never show RR < 1
+            if rr_val >= 1:
+                signals.append({
+                    "Type": "OAA-R",
+                    "Side": "SHORT",
+                    "Time": candle["time"],
+                    "Entry": entry,
+                    "Stop": stop,
+                    "Target": target,
+                    "RR": rr_val,
+                    "Quality": "A+" if rr_val >= 2 else "B"
+                })
 
 signals_df = pd.DataFrame(signals)
+
+def highlight_rr(row):
+    if row["RR"] >= 2:
+        return ["background-color: #0f5132; color: white"] * len(row)
+    return [""] * len(row)
+
+if not signals_df.empty:
+    st.dataframe(
+        signals_df.style.apply(highlight_rr, axis=1),
+        use_container_width=True
+    )
+else:
+    st.info("No valid setups detected (RR < 1 filtered).")
+
 
 # -------------------------------------------------
 # TAB SYSTEM (AUTO / MANUAL / BOTH)
