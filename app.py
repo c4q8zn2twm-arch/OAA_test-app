@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from datetime import datetime, time, timedelta
+import plotly.graph_objects as go
 
 st.set_page_config(layout="wide", page_title="Opening Auction Acceptance + Manual Replay")
 
@@ -20,7 +21,7 @@ st.markdown(
     }
     /* Cards */
     .card {
-        background-color: #f9fafb;
+        background-color: var(--card-bg);
         padding: 1.2rem 1.5rem;
         margin-bottom: 1.5rem;
         border-radius: 10px;
@@ -58,9 +59,45 @@ st.markdown(
         margin-top: 0.5rem;
         margin-bottom: 1rem;
     }
+    /* Dark mode colors */
+    :root {
+        --card-bg: #f9fafb;
+        --bg-color: white;
+        --text-color: #111;
+    }
+    .dark-mode {
+        --card-bg: #1e1e1e;
+        --bg-color: #121212;
+        --text-color: #eee;
+    }
+    .dark-mode .card {
+        box-shadow: 0 3px 8px rgba(255 255 255 / 0.1);
+    }
+    body {
+        background-color: var(--bg-color);
+        color: var(--text-color);
+    }
     </style>
-    """, unsafe_allow_html=True
+    """,
+    unsafe_allow_html=True
 )
+
+# -------------------------------
+# DARK MODE TOGGLE
+# -------------------------------
+if "dark_mode" not in st.session_state:
+    st.session_state.dark_mode = False
+
+def toggle_dark_mode():
+    st.session_state.dark_mode = not st.session_state.dark_mode
+
+with st.sidebar:
+    st.checkbox("🌙 Dark Mode", value=st.session_state.dark_mode, key="dark_mode_checkbox", on_change=toggle_dark_mode)
+
+if st.session_state.dark_mode:
+    st.markdown('<body class="dark-mode">', unsafe_allow_html=True)
+else:
+    st.markdown('<body>', unsafe_allow_html=True)
 
 # -------------------------------
 # DATA LOADER
@@ -91,6 +128,15 @@ def load_data(symbol):
     if not required_cols.issubset(df.columns):
         return pd.DataFrame()
     return df
+
+@st.cache_data
+def get_asset_info(symbol):
+    try:
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        return info.get('longName', symbol)
+    except Exception:
+        return symbol
 
 # -------------------------------
 # UTILS
@@ -153,8 +199,9 @@ with st.sidebar:
     now = datetime.now()
     st.markdown(f"### ⏰ Current Time\n**{now.strftime('%Y-%m-%d %H:%M:%S')}**")
 
-# Load data (in main area, but symbol chosen in sidebar)
+# Load data and asset name
 df = load_data(symbol)
+asset_name = get_asset_info(symbol)
 
 if df.empty:
     st.error("No data returned. Check symbol or market hours.")
@@ -185,15 +232,14 @@ st.sidebar.markdown(f'<div class="badge {badge_class}">Day Type: {day_type}</div
 # -------------------------------
 # MAIN PAGE LAYOUT
 # -------------------------------
-# Container for all main content
 with st.container():
-    # Top half: Key Levels + Automated Suggestions side-by-side
     col_keylevels, col_auto = st.columns([1,1], gap="large")
 
-    # Key Levels Card
+    # Key Levels + Asset Name Card
     with col_keylevels:
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown("## 🔑 Key Levels")
+        st.markdown(f"## 📌 {asset_name} - Key Levels")
+
         if OH is None or OL is None:
             st.warning("Aftermarket hours — no opening range data available.")
             st.write({
@@ -208,6 +254,72 @@ with st.container():
                 "PDH": PDH, "PDL": PDL,
                 "PDO": PDO
             })
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # Plot Price Chart + Levels
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown(f"## 📈 Price Chart with Levels")
+
+        fig = go.Figure()
+
+        # Price Candles
+        fig.add_trace(go.Candlestick(
+            x=df["time"],
+            open=df["Open"],
+            high=df["High"],
+            low=df["Low"],
+            close=df["Close"],
+            name="Price",
+            increasing_line_color='#22c55e' if not st.session_state.dark_mode else '#4ade80',
+            decreasing_line_color='#ef4444' if not st.session_state.dark_mode else '#f87171',
+            increasing_fillcolor='rgba(34,197,94,0.3)' if not st.session_state.dark_mode else 'rgba(74,222,128,0.3)',
+            decreasing_fillcolor='rgba(239,68,68,0.3)' if not st.session_state.dark_mode else 'rgba(248,113,113,0.3)',
+        ))
+
+        # Add horizontal lines for levels if available
+        level_lines = {
+            "OH": OH,
+            "OL": OL,
+            "PMH": PMH,
+            "PML": PML,
+            "PDH": PDH,
+            "PDL": PDL,
+            "PDO": PDO
+        }
+        colors = {
+            "OH": "purple",
+            "OL": "purple",
+            "PMH": "blue",
+            "PML": "blue",
+            "PDH": "orange",
+            "PDL": "orange",
+            "PDO": "gray"
+        }
+
+        for lvl_name, lvl_value in level_lines.items():
+            if lvl_value is not None:
+                fig.add_hline(
+                    y=lvl_value,
+                    line_dash="dot",
+                    line_color=colors[lvl_name],
+                    annotation_text=lvl_name,
+                    annotation_position="top left",
+                    annotation_font_color=colors[lvl_name],
+                )
+
+        fig.update_layout(
+            height=350,
+            margin=dict(l=10, r=10, t=25, b=10),
+            paper_bgcolor='var(--card-bg)',
+            plot_bgcolor='var(--card-bg)',
+            font_color='var(--text-color)',
+            xaxis_rangeslider_visible=False,
+            xaxis_title="Time",
+            yaxis_title="Price",
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     # Automated Trade Suggestions + Journal Card
@@ -267,16 +379,6 @@ with st.container():
 
             journal_df = st.session_state.automated_journal
 
-            # Colorize Side column
-            def side_colored(val):
-                color = "#22c55e" if val == "Long" else "#ef4444"
-                return f'<span style="color:{color}; font-weight:700;">{val}</span>'
-
-            journal_df_display = journal_df.copy()
-            journal_df_display["Side"] = journal_df_display["Side"].apply(
-                lambda x: f'<span style="color:{"#22c55e" if x=="Long" else "#ef4444"}; font-weight:700;">{x}</span>'
-            )
-
             edited_df = st.data_editor(
                 journal_df,
                 use_container_width=True,
@@ -313,7 +415,7 @@ with st.container():
     # Bottom half: Manual Replay + Trade Journals side-by-side
     col_manual, col_journals = st.columns([1,1], gap="large")
 
-    # Manual Replay Card
+    # Manual Replay Card with Animated Slider
     with col_manual:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("## 🎮 Manual Trading Replay")
@@ -322,113 +424,4 @@ with st.container():
             st.session_state.df_replay = df.copy()
         if 'index' not in st.session_state:
             st.session_state.index = 0
-        if 'position' not in st.session_state:
-            st.session_state.position = None
-        if 'trades' not in st.session_state:
-            st.session_state.trades = []
-
-        df_replay = st.session_state.df_replay
-        idx = st.session_state.index
-        row = df_replay.iloc[idx]
-
-        st.markdown(f"### Candle {idx + 1} / {len(df_replay)}")
-        st.write({
-            "Date": row["time"],
-            "Open": round(row.Open, 2),
-            "High": round(row.High, 2),
-            "Low": round(row.Low, 2),
-            "Close": round(row.Close, 2),
-        })
-
-        col1, col2, col3, col4, col5 = st.columns(5, gap="small")
-
-        with col1:
-            if st.button("⏮ Previous Candle"):
-                if st.session_state.index > 0:
-                    st.session_state.index -= 1
-
-        with col2:
-            if st.button("⏭ Next Candle"):
-                if st.session_state.index < len(df_replay) - 1:
-                    st.session_state.index += 1
-
-        with col3:
-            if st.button("🟢 Buy"):
-                if st.session_state.position is None:
-                    st.session_state.position = {
-                        "entry_date": row["time"],
-                        "entry_price": row.Close,
-                        "note": ""
-                    }
-
-        with col4:
-            if st.button("🔴 Sell / Close"):
-                if st.session_state.position is not None:
-                    trade = st.session_state.position
-                    trade["exit_date"] = row["time"]
-                    trade["exit_price"] = row.Close
-                    trade["pnl"] = round(row.Close - trade["entry_price"], 2)
-                    st.session_state.trades.append(trade)
-                    st.session_state.position = None
-
-        with col5:
-            if st.button("🔄 Reset Session"):
-                st.session_state.index = 0
-                st.session_state.position = None
-                st.session_state.trades = []
-
-        if st.session_state.position is not None:
-            st.text_area(
-                "📝 Trade Note",
-                st.session_state.position.get("note", ""),
-                key="trade_note_textarea",
-                on_change=lambda: st.session_state.position.update({"note": st.session_state.trade_note_textarea}),
-                height=80,
-            )
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # Trade Journals Card (Manual)
-    with col_journals:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown("## 📒 Manual Trade Journal")
-
-        if st.session_state.trades:
-            manual_trades_df = pd.DataFrame(st.session_state.trades)
-            if "Delete" not in manual_trades_df.columns:
-                manual_trades_df["Delete"] = False
-
-            edited_manual_df = st.data_editor(
-                manual_trades_df,
-                use_container_width=True,
-                column_config={
-                    "Delete": st.column_config.CheckboxColumn("Delete")
-                },
-                num_rows="dynamic"
-            )
-
-            col1, col2, col3 = st.columns([1,1,1])
-
-            with col1:
-                if st.button("🗑️ Delete Selected Manual Entries"):
-                    st.session_state.show_manual_confirm = True
-
-            with col2:
-                csv = pd.DataFrame(st.session_state.trades).to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    "⬇ Export Manual Trades CSV",
-                    csv,
-                    "manual_trade_journal.csv",
-                    "text/csv"
-                )
-
-            if st.session_state.get("show_manual_confirm", False):
-                confirm_manual = st.checkbox("Confirm deletion of selected manual entries")
-                if confirm_manual:
-                    st.session_state.trades = edited_manual_df[~edited_manual_df["Delete"].fillna(False)].drop(columns=["Delete"]).to_dict('records')
-                    st.success("Deleted selected manual entries.")
-                    st.session_state.show_manual_confirm = False
-        else:
-            st.info("No manual trades recorded yet.")
-
-        st.markdown('</div>', unsafe_allow_html=True)
+        if '
