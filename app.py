@@ -424,4 +424,128 @@ with st.container():
             st.session_state.df_replay = df.copy()
         if 'index' not in st.session_state:
             st.session_state.index = 0
-        if '
+        if 'position' not in st.session_state:
+            st.session_state.position = None
+        if 'trades' not in st.session_state:
+            st.session_state.trades = []
+
+        df_replay = st.session_state.df_replay
+
+        # Animated slider for candle index
+        idx = st.slider(
+            "Select Candle Index",
+            min_value=0,
+            max_value=len(df_replay) - 1,
+            value=st.session_state.index,
+            key="manual_replay_slider"
+        )
+        st.session_state.index = idx
+        row = df_replay.iloc[idx]
+
+        st.markdown(f"### Candle {idx + 1} / {len(df_replay)}")
+        st.write({
+            "Date": row["time"],
+            "Open": round(row.Open, 2),
+            "High": round(row.High, 2),
+            "Low": round(row.Low, 2),
+            "Close": round(row.Close, 2),
+        })
+
+        col1, col2, col3, col4 = st.columns(4, gap="small")
+
+        with col1:
+            if st.button("🟢 Buy"):
+                if st.session_state.position is None:
+                    st.session_state.position = {
+                        "entry_date": row["time"],
+                        "entry_price": row.Close,
+                        "note": ""
+                    }
+
+        with col2:
+            if st.button("🔴 Sell / Close"):
+                if st.session_state.position is not None:
+                    trade = st.session_state.position
+                    trade["exit_date"] = row["time"]
+                    trade["exit_price"] = row.Close
+                    trade["pnl"] = round(row.Close - trade["entry_price"], 2)
+                    st.session_state.trades.append(trade)
+                    st.session_state.position = None
+
+        with col3:
+            if st.button("🔄 Reset Session"):
+                st.session_state.index = 0
+                st.session_state.position = None
+                st.session_state.trades = []
+                st.session_state.manual_replay_slider = 0
+
+        with col4:
+            if st.button("⏮ Previous Candle"):
+                if st.session_state.index > 0:
+                    st.session_state.index -= 1
+                    st.session_state.manual_replay_slider = st.session_state.index
+
+        # Trade note text area
+        if st.session_state.position is not None:
+            note_key = "trade_note_textarea"
+            if note_key not in st.session_state:
+                st.session_state[note_key] = st.session_state.position.get("note", "")
+            new_note = st.text_area("📝 Trade Note", st.session_state[note_key], height=80)
+            st.session_state[note_key] = new_note
+            # Save back to position
+            st.session_state.position["note"] = st.session_state[note_key]
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Trade Journals Card (Manual)
+    with col_journals:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown("## 📒 Manual Trade Journal")
+
+        if "manual_journal" not in st.session_state:
+            st.session_state.manual_journal = pd.DataFrame()
+
+        # Convert trades list of dict to dataframe
+        if st.session_state.trades:
+            manual_trades_df = pd.DataFrame(st.session_state.trades)
+            manual_trades_df["Delete"] = False
+            st.session_state.manual_journal = manual_trades_df
+        else:
+            manual_trades_df = st.session_state.manual_journal
+
+        if manual_trades_df.empty:
+            st.info("No manual trades recorded.")
+        else:
+            edited_manual_df = st.data_editor(
+                manual_trades_df,
+                use_container_width=True,
+                column_config={
+                    "Delete": st.column_config.CheckboxColumn("Delete"),
+                    "entry_date": st.column_config.DateTimeColumn("Entry Date"),
+                    "exit_date": st.column_config.DateTimeColumn("Exit Date"),
+                },
+                num_rows="dynamic",
+            )
+
+            col1, col2, col3 = st.columns([1,1,1])
+
+            with col1:
+                if st.button("🗑️ Delete Selected Manual Entries"):
+                    st.session_state.show_manual_confirm = True
+
+            with col2:
+                if st.button("⬇ Export Manual Journal CSV"):
+                    export_df = manual_trades_df.drop(columns=["Delete"], errors="ignore")
+                    export_df.to_csv("manual_trades.csv", index=False)
+                    st.success("Exported manual_trades.csv")
+
+            if st.session_state.get("show_manual_confirm", False):
+                confirm = st.checkbox("Confirm deletion of selected manual entries")
+                if confirm:
+                    filtered = edited_manual_df[~edited_manual_df["Delete"].fillna(False)].reset_index(drop=True)
+                    st.session_state.trades = filtered.to_dict("records")
+                    st.session_state.manual_journal = filtered
+                    st.success("Deleted selected manual entries.")
+                    st.session_state.show_manual_confirm = False
+
+        st.markdown('</div>', unsafe_allow_html=True)
