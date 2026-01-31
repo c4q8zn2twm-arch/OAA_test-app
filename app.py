@@ -165,7 +165,7 @@ if manual_day != "Auto":
 st.success(f"Day Type: {day_type}")
 
 # -------------------------------
-# Automated Signal Generation
+# Automated Signal Generation (with Side field)
 # -------------------------------
 signals = []
 
@@ -182,13 +182,14 @@ else:
         if pd.isna(candle["Close"]) or pd.isna(prev["High"]):
             continue
 
-        # Initiative Break
+        # Initiative Break (Long)
         if candle["Close"] > OH and candle["Close"] > prev["High"]:
             entry = candle["Close"]
             stop = OL
             target = PDH
             signals.append({
                 "Type": "OAA-I",
+                "Side": "Long",
                 "Entry": entry,
                 "Stop": stop,
                 "Target": target,
@@ -196,13 +197,14 @@ else:
                 "DateTime": candle["time"]
             })
 
-        # Rotational Acceptance
+        # Rotational Acceptance (Short)
         if candle["High"] > OH and candle["Close"] < OH:
             entry = candle["Close"]
             stop = candle["High"]
             target = PDO
             signals.append({
                 "Type": "OAA-R",
+                "Side": "Short",
                 "Entry": entry,
                 "Stop": stop,
                 "Target": target,
