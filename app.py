@@ -1,188 +1,362 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import yfinance as yf
 from datetime import datetime, time, timedelta
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="Trading Replay + Signals", layout="wide")
+# -------------------------------------------------
+# PAGE CONFIG
+# -------------------------------------------------
+st.set_page_config(page_title="Trading Replay & OAA", layout="wide")
 
-# ----------------------------------
-# DATA LOADER
-# ----------------------------------
+# -------------------------------------------------
+# HEADER BAR
+# -------------------------------------------------
+colA, colB = st.columns([3, 1])
+with colA:
+    st.title("📈 Trading Replay & Opening Auction Acceptance")
+with colB:
+    st.markdown(f"🕒 **{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**")
+
+# -------------------------------------------------
+# SYMBOL + TIMEFRAME
+# -------------------------------------------------
+st.markdown("### Asset Selection")
+
+symbol = st.text_input("Symbol (Stocks / Crypto / FX)", "AAPL")
+
+tf_map = {
+    "5m": "5m",
+    "15m": "15m",
+    "30m": "30m",
+    "1h": "60m"
+}
+timeframe = st.selectbox("Timeframe", list(tf_map.keys()), index=0)
+interval = tf_map[timeframe]
+
+st.caption("Examples: AAPL, MSFT, SPY, BTC-USD, EURUSD=X")
+
+# -------------------------------------------------
+# DATA LOADER (WITH PREMARKET)
+# -------------------------------------------------
 @st.cache_data
 def load_data(symbol, interval):
     df = yf.download(
         symbol,
         interval=interval,
         period="7d",
-        prepost=True,
-        progress=False
+        prepost=True,  # PREMARKET ENABLED
+        progress=False,
+        auto_adjust=False
     )
+
     if df.empty:
         return pd.DataFrame()
+
     df = df.reset_index()
+
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = [c[0] for c in df.columns]
-    df.rename(columns={"Datetime": "time", "Date": "time"}, inplace=True)
+
+    if "Datetime" in df.columns:
+        df.rename(columns={"Datetime": "time"}, inplace=True)
+    elif "Date" in df.columns:
+        df.rename(columns={"Date": "time"}, inplace=True)
+
     df["time"] = pd.to_datetime(df["time"])
     df["date"] = df["time"].dt.date
     df["session"] = df["time"].dt.time
+
     return df
 
-# ----------------------------------
-# HERDER + GLOBAL INPUTS
-# ----------------------------------
-col1, col2 = st.columns([3,1])
-with col1:
-    st.title("📈 Trading Replay + Signal Suite")
-with col2:
-    st.markdown(f"**🕒 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}**")
 
-symbol = st.text_input("Symbol", "AAPL")
-interval_map = {"5m":"5m", "15m":"15m", "30m":"30m", "1h":"60m"}
-timeframe = st.selectbox("Timeframe", list(interval_map.keys()))
-interval = interval_map[timeframe]
+df = load_data(symbol, interval)
 
-try:
-    df = load_data(symbol, interval)
-    if df.empty:
-        st.error("No data returned.")
-        st.stop()
-except Exception as e:
-    st.error("Error loading symbol data.")
+if df.empty:
+    st.error("No data returned. Try another symbol.")
     st.stop()
 
-# ----------------------------------
+# -------------------------------------------------
 # LEVEL CALCULATIONS
-# ----------------------------------
-def opening_range(data):
-    or_df = data[(data["session"]>=time(9,30)) & (data["session"]<=time(9,35))]
-    return or_df.High.max(), or_df.Low.min() if not or_df.empty else (None,None)
+# -------------------------------------------------
+def opening_range(df):
+    or_df = df[(df["session"] >= time(9,30)) & (df["session"] <= time(9,35))]
+    if or_df.empty:
+        return None, None
+    return or_df["High"].max(), or_df["Low"].min()
 
-def premarket_levels(data):
-    pm = data[data["session"]<time(9,30)]
-    return pm.High.max(), pm.Low.min() if not pm.empty else (None,None)
+def premarket_levels(df):
+    pm = df[df["session"] < time(9,30)]
+    if pm.empty:
+        return None, None
+    return pm["High"].max(), pm["Low"].min()
 
-def prior_day_levels(data):
-    dates = sorted(data["date"].unique())
-    if len(dates)<2: return (None,None,None)
-    prior = data[data["date"]==dates[-2]]
-    return prior.High.max(), prior.Low.min(), prior.Open.iloc[0]
+def prior_day_levels(df):
+    dates = sorted(df["date"].unique())
+    if len(dates) < 2:
+        return None, None, None
+    prior = df[df["date"] == dates[-2]]
+    return prior["High"].max(), prior["Low"].min(), prior["Open"].iloc[0]
 
 OH, OL = opening_range(df)
 PMH, PML = premarket_levels(df)
 PDH, PDL, PDO = prior_day_levels(df)
 
-# ----------------------------------
-# CHART PANEL
-# ----------------------------------
-def draw_chart(data):
-    fig = go.Figure()
-    fig.add_trace(go.Candlestick(
-        x=data["time"], open=data["Open"],
-        high=data["High"], low=data["Low"], close=data["Close"]
-    ))
-    for lvl, label in [(OH,"OH"),(OL,"OL"),(PMH,"PMH"),(PML,"PML")]:
-        if lvl is not None: fig.add_hline(y=lvl, line_dash="dot", annotation_text=label)
-    fig.update_layout(
-        height=450, xaxis_rangeslider_visible=False
+# -------------------------------------------------
+# DISPLAY LEVELS
+# -------------------------------------------------
+st.markdown(f"## **{symbol.upper()} Key Levels**")
+
+st.write({
+    "Opening High": OH,
+    "Opening Low": OL,
+    "Premarket High": PMH,
+    "Premarket Low": PML,
+    "Prior Day High": PDH,
+    "Prior Day Low": PDL,
+    "Prior Day Open": PDO
+})
+
+# -------------------------------------------------
+# SESSION FILTERS
+# -------------------------------------------------
+st.markdown("### Session Overlays")
+sessions_selected = st.multiselect(
+    "Highlight Sessions",
+    ["Asia", "London", "New York"],
+    default=["New York"]
+)
+
+session_ranges = {
+    "Asia": (time(20,0), time(2,0)),
+    "London": (time(3,0), time(11,0)),
+    "New York": (time(9,30), time(16,0))
+}
+
+# -------------------------------------------------
+# CHART
+# -------------------------------------------------
+st.markdown("## Price Chart")
+
+fig = go.Figure()
+
+fig.add_trace(go.Candlestick(
+    x=df["time"],
+    open=df["Open"],
+    high=df["High"],
+    low=df["Low"],
+    close=df["Close"],
+    name="Price"
+))
+
+def add_level(price, label, color):
+    if price is not None:
+        fig.add_hline(y=price, line_dash="dash", annotation_text=label)
+
+add_level(OH, "OH", "green")
+add_level(OL, "OL", "red")
+add_level(PMH, "PMH", "purple")
+add_level(PML, "PML", "purple")
+add_level(PDH, "PDH", "blue")
+add_level(PDL, "PDL", "blue")
+
+fig.update_layout(height=520, xaxis_rangeslider_visible=False)
+st.plotly_chart(fig, use_container_width=True)
+
+# -------------------------------------------------
+# DAY TYPE LOGIC
+# -------------------------------------------------
+latest = df.iloc[-1]
+day_type = "Rotational"
+
+if OH and OL:
+    if latest["Close"] > OH or latest["Close"] < OL:
+        day_type = "Initiative"
+
+manual_override = st.selectbox("Day Type Override", ["Auto", "Initiative", "Rotational"])
+if manual_override != "Auto":
+    day_type = manual_override
+
+st.success(f"Day Type: {day_type}")
+
+# -------------------------------------------------
+# TRADE SIGNAL ENGINE
+# -------------------------------------------------
+def rr(entry, stop, target):
+    risk = abs(entry - stop)
+    reward = abs(target - entry)
+    return round(reward / risk, 2) if risk else 0
+
+signals = []
+
+for i in range(5, len(df)):
+    candle = df.iloc[i]
+    prev = df.iloc[i - 1]
+
+    # ---------------------------
+    # Initiative (LONG)
+    # ---------------------------
+    if OH is not None and PDH is not None and OL is not None:
+        if candle["Close"] > OH and candle["Close"] > prev["High"]:
+            entry = candle["Close"]
+            stop = OL
+            target = PDH
+            rr_val = rr(entry, stop, target)
+
+            # FILTER: never show RR < 1
+            if rr_val >= 1:
+                signals.append({
+                    "Type": "OAA-I",
+                    "Side": "LONG",
+                    "Time": candle["time"],
+                    "Entry": entry,
+                    "Stop": stop,
+                    "Target": target,
+                    "RR": rr_val,
+                    "Quality": "A+" if rr_val >= 2 else "B"
+                })
+
+    # ---------------------------
+    # Rotational (SHORT)
+    # ---------------------------
+    if OH is not None and PDO is not None:
+        if candle["High"] > OH and candle["Close"] < OH:
+            entry = candle["Close"]
+            stop = candle["High"]
+            target = PDO
+            rr_val = rr(entry, stop, target)
+
+            # FILTER: never show RR < 1
+            if rr_val >= 1:
+                signals.append({
+                    "Type": "OAA-R",
+                    "Side": "SHORT",
+                    "Time": candle["time"],
+                    "Entry": entry,
+                    "Stop": stop,
+                    "Target": target,
+                    "RR": rr_val,
+                    "Quality": "A+" if rr_val >= 2 else "B"
+                })
+
+signals_df = pd.DataFrame(signals)
+
+def highlight_rr(row):
+    if row["RR"] >= 2:
+        return ["background-color: #0f5132; color: white"] * len(row)
+    return [""] * len(row)
+
+if not signals_df.empty:
+    st.dataframe(
+        signals_df.style.apply(highlight_rr, axis=1),
+        use_container_width=True
     )
-    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("No valid setups detected (RR < 1 filtered).")
 
-# ----------------------------------
-# SIGNAL ENGINE
-# ----------------------------------
-def get_signals(data):
-    sigs=[]
-    def rr(e,s,t): return round(abs(t-e)/abs(e-s),2) if abs(e-s)>0 else 0
-    for i in range(5,len(data)):
-        c, p = data.iloc[i], data.iloc[i-1]
-        if OH and OL and PDH:
-            if c.Close > OH and c.Close > p.High:
-                r = rr(c.Close,OL,PDH)
-                if r>=1: sigs.append({"Type":"OAA-I","Side":"LONG","Time":c.time,
-                                      "Entry":c.Close,"Stop":OL,"Target":PDH,"RR":r})
-        if OH and PDO:
-            if c.High>OH and c.Close<OH:
-                r=rr(c.Close,c.High, PDO)
-                if r>=1: sigs.append({"Type":"OAA-R","Side":"SHORT","Time":c.time,
-                                      "Entry":c.Close,"Stop":c.High,"Target":PDO,"RR":r})
-    return pd.DataFrame(sigs)
 
-# ----------------------------------
-# VIEW MODES
-# ----------------------------------
-mode = st.radio("View Mode", ["Automatic Only","Manual Only","Both"], horizontal=True)
+# -------------------------------------------------
+# TAB SYSTEM (AUTO / MANUAL / BOTH)
+# -------------------------------------------------
+view_mode = st.radio("View Mode", ["Automatic Only", "Manual Only", "Both"], horizontal=True)
 
-# ----------------------------------
-# AUTOMATED VIEW
-# ----------------------------------
-signals_df = get_signals(df)
+auto_tab, manual_tab = st.tabs(["📡 Automated", "🎮 Manual Replay"])
 
-if mode in ["Automatic Only","Both"]:
-    with st.expander("📡 Automated Signals", expanded=True):
+# -------------------------------------------------
+# AUTOMATED TAB
+# -------------------------------------------------
+if view_mode in ["Automatic Only", "Both"]:
+    with auto_tab:
+        st.subheader("📡 Automated Trade Suggestions")
+
         if signals_df.empty:
-            st.info("No valid signals.")
+            st.info("No valid setups detected.")
         else:
-            def highlight_rr(row):
-                return ["background-color: lightgreen"]*len(row) if row["RR"]>=2 else [""*len(row)]
-            st.dataframe(signals_df.style.apply(highlight_rr,axis=1))
+            st.dataframe(signals_df, use_container_width=True)
 
-# ----------------------------------
-# MANUAL REPLAY
-# ----------------------------------
-if "idx" not in st.session_state: st.session_state.idx = 0
-if "position" not in st.session_state: st.session_state.position = None
-if "trades" not in st.session_state: st.session_state.trades = []
+# -------------------------------------------------
+# MANUAL REPLAY ENGINE
+# -------------------------------------------------
+if "index" not in st.session_state:
+    st.session_state.index = 0
+if "position" not in st.session_state:
+    st.session_state.position = None
+if "trades" not in st.session_state:
+    st.session_state.trades = []
 
-if mode in ["Manual Only","Both"]:
-    with st.expander("🎮 Manual Replay", expanded=True):
-        idx = st.slider("Replay Index",0,len(df)-1, st.session_state.idx)
-        st.session_state.idx = idx
+if view_mode in ["Manual Only", "Both"]:
+    with manual_tab:
+        st.subheader("🎮 Manual Replay")
+
+        idx = st.slider("Replay Position", 0, len(df)-1, st.session_state.index)
+        st.session_state.index = idx
+
         row = df.iloc[idx]
+
         st.write({
-            "Time":row.time,"Open":row.Open,"High":row.High,
-            "Low":row.Low,"Close":row.Close
+            "Time": row["time"],
+            "Open": row["Open"],
+            "High": row["High"],
+            "Low": row["Low"],
+            "Close": row["Close"]
         })
-        c1,c2,c3,c4=st.columns(4)
-        with c1:
-            if st.button("⏮ Previous"): st.session_state.idx=max(0,idx-1)
-        with c2:
-            if st.button("⏭ Next"): st.session_state.idx=min(len(df)-1,idx+1)
-        with c3:
-            if st.button("🟢 Buy") and not st.session_state.position:
-                st.session_state.position={"entry_time":row.time,"entry_price":row.Close,"note":""}
-        with c4:
-            if st.button("🔴 Sell") and st.session_state.position:
-                t=st.session_state.position
-                t["exit_time"]=row.time; t["exit_price"]=row.Close
-                t["pnl"]=round(row.Close - t["entry_price"],2)
-                st.session_state.trades.append(t)
-                st.session_state.position=None
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            if st.button("⏮ Previous"):
+                st.session_state.index = max(0, st.session_state.index - 1)
+
+        with col2:
+            if st.button("⏭ Next"):
+                st.session_state.index = min(len(df)-1, st.session_state.index + 1)
+
+        with col3:
+            if st.button("🟢 Buy"):
+                if st.session_state.position is None:
+                    st.session_state.position = {
+                        "entry_time": row["time"],
+                        "entry_price": row["Close"],
+                        "note": ""
+                    }
+
+        with col4:
+            if st.button("🔴 Sell / Close"):
+                if st.session_state.position:
+                    trade = st.session_state.position
+                    trade["exit_time"] = row["time"]
+                    trade["exit_price"] = row["Close"]
+                    trade["pnl"] = round(row["Close"] - trade["entry_price"], 2)
+                    st.session_state.trades.append(trade)
+                    st.session_state.position = None
 
         if st.session_state.position:
             st.session_state.position["note"] = st.text_input(
-                "📝 Trade Note", st.session_state.position.get("note","")
+                "📝 Trade Note",
+                st.session_state.position.get("note", "")
             )
 
-# ----------------------------------
-# JOURNAL
-# ----------------------------------
+# -------------------------------------------------
+# JOURNAL WITH DELETE CONFIRMATION
+# -------------------------------------------------
 st.divider()
 st.subheader("📒 Trade Journal")
 
 if st.session_state.trades:
-    jdf = pd.DataFrame(st.session_state.trades)
-    jdf["Delete"] = False
-    edited = st.data_editor(jdf,use_container_width=True)
-    if st.button("⚠ Confirm Delete"):
-        st.session_state.trades = [
-            r for i,r in enumerate(st.session_state.trades)
-            if not edited.loc[i,"Delete"]
-        ]
-        st.success("Deleted selected trades")
-    st.download_button("⬇ Export CSV",
-                       pd.DataFrame(st.session_state.trades).to_csv(index=False),
-                       "trade_journal.csv","text/csv")
+    trades_df = pd.DataFrame(st.session_state.trades)
+
+    delete_index = st.selectbox("Delete Trade", ["None"] + list(trades_df.index))
+
+    if delete_index != "None":
+        if st.button("⚠ Confirm Delete"):
+            st.session_state.trades.pop(int(delete_index))
+            st.success("Trade deleted")
+
+    st.dataframe(trades_df, use_container_width=True)
+
+    csv = trades_df.to_csv(index=False).encode("utf-8")
+    st.download_button("⬇ Download Trades CSV", csv, "trade_journal.csv", "text/csv")
+
 else:
     st.info("No trades recorded yet.")
