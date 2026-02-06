@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import yfinance as yf
-from datetime import datetime, time, timedelta
+from datetime import datetime, time
 import plotly.graph_objects as go
 
 # -------------------------------------------------
@@ -46,7 +45,7 @@ def load_data(symbol, interval):
         symbol,
         interval=interval,
         period="7d",
-        prepost=True,  # PREMARKET ENABLED
+        prepost=True,
         progress=False,
         auto_adjust=False
     )
@@ -104,7 +103,7 @@ PMH, PML = premarket_levels(df)
 PDH, PDL, PDO = prior_day_levels(df)
 
 # -------------------------------------------------
-# DISPLAY LEVELS
+# DISPLAY SYMBOL + LEVELS
 # -------------------------------------------------
 st.markdown(f"## **{symbol.upper()} Key Levels**")
 
@@ -117,22 +116,6 @@ st.write({
     "Prior Day Low": PDL,
     "Prior Day Open": PDO
 })
-
-# -------------------------------------------------
-# SESSION FILTERS
-# -------------------------------------------------
-st.markdown("### Session Overlays")
-sessions_selected = st.multiselect(
-    "Highlight Sessions",
-    ["Asia", "London", "New York"],
-    default=["New York"]
-)
-
-session_ranges = {
-    "Asia": (time(20,0), time(2,0)),
-    "London": (time(3,0), time(11,0)),
-    "New York": (time(9,30), time(16,0))
-}
 
 # -------------------------------------------------
 # CHART
@@ -150,16 +133,16 @@ fig.add_trace(go.Candlestick(
     name="Price"
 ))
 
-def add_level(price, label, color):
+def add_level(price, label):
     if price is not None:
         fig.add_hline(y=price, line_dash="dash", annotation_text=label)
 
-add_level(OH, "OH", "green")
-add_level(OL, "OL", "red")
-add_level(PMH, "PMH", "purple")
-add_level(PML, "PML", "purple")
-add_level(PDH, "PDH", "blue")
-add_level(PDL, "PDL", "blue")
+add_level(OH, "OH")
+add_level(OL, "OL")
+add_level(PMH, "PMH")
+add_level(PML, "PML")
+add_level(PDH, "PDH")
+add_level(PDL, "PDL")
 
 fig.update_layout(height=520, xaxis_rangeslider_visible=False)
 st.plotly_chart(fig, use_container_width=True)
@@ -194,9 +177,7 @@ for i in range(5, len(df)):
     candle = df.iloc[i]
     prev = df.iloc[i - 1]
 
-    # ---------------------------
     # Initiative (LONG)
-    # ---------------------------
     if OH is not None and PDH is not None and OL is not None:
         if candle["Close"] > OH and candle["Close"] > prev["High"]:
             entry = candle["Close"]
@@ -217,9 +198,7 @@ for i in range(5, len(df)):
                     "Quality": "A+" if rr_val >= 2 else "B"
                 })
 
-    # ---------------------------
     # Rotational (SHORT)
-    # ---------------------------
     if OH is not None and PDO is not None:
         if candle["High"] > OH and candle["Close"] < OH:
             entry = candle["Close"]
@@ -247,15 +226,6 @@ def highlight_rr(row):
         return ["background-color: #0f5132; color: white"] * len(row)
     return [""] * len(row)
 
-if not signals_df.empty:
-    st.dataframe(
-        signals_df.style.apply(highlight_rr, axis=1),
-        use_container_width=True
-    )
-else:
-    st.info("No valid setups detected (RR < 1 filtered).")
-
-
 # -------------------------------------------------
 # TAB SYSTEM (AUTO / MANUAL / BOTH)
 # -------------------------------------------------
@@ -273,7 +243,10 @@ if view_mode in ["Automatic Only", "Both"]:
         if signals_df.empty:
             st.info("No valid setups detected.")
         else:
-            st.dataframe(signals_df, use_container_width=True)
+            st.dataframe(
+                signals_df.style.apply(highlight_rr, axis=1),
+                use_container_width=True
+            )
 
 # -------------------------------------------------
 # MANUAL REPLAY ENGINE
